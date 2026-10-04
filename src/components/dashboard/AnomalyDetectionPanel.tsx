@@ -30,7 +30,7 @@ type Props = {
 }
 
 export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
-  const [filterType, setFilterType] = useState<'all' | 'size_drop' | 'extreme_delay'>('all')
+  const [filterType, setFilterType] = useState<'all' | 'size_drop' | 'extreme_delay'>('size_drop')
   const [now] = useState(() => Date.now())
 
   // Compute 24-hour anomalies using Gaussian baseline of sibling historical reports
@@ -162,28 +162,42 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
     )
   }
 
+  const isNominal = anomalies.length === 0
+
   return (
-    <div className="rounded-2xl border border-rose-500/20 bg-gradient-to-b from-rose-500/[0.04] via-card to-card p-5 shadow-sm space-y-4">
+    <div
+      className={`rounded-2xl border p-5 shadow-sm space-y-4 transition-all duration-300 ${
+        isNominal
+          ? 'border-emerald-500/30 bg-gradient-to-b from-emerald-500/[0.08] via-emerald-500/[0.02] to-card'
+          : 'border-rose-500/20 bg-gradient-to-b from-rose-500/[0.04] via-card to-card'
+      }`}
+    >
       {/* Panel Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-500 border border-rose-500/20 shadow-xs">
-            <Zap size={20} className="animate-pulse" />
+          <div
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border shadow-xs transition-colors ${
+              isNominal
+                ? 'bg-emerald-500/15 text-emerald-500 border-emerald-500/30'
+                : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+            }`}
+          >
+            {isNominal ? <ShieldCheck size={20} className="text-emerald-500" /> : <Zap size={20} className="animate-pulse" />}
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold tracking-tight text-ink flex items-center gap-2">
                 24-Hour SFTP Anomaly Radar
               </h2>
-              {anomalies.length > 0 ? (
+              {!isNominal ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">
                   <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
                   {anomalies.length} {anomalies.length === 1 ? 'Anomaly' : 'Anomalies'} Detected
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  <ShieldCheck size={12} />
-                  Nominal Baseline
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  <ShieldCheck size={13} />
+                  All Systems Nominal (0 Anomalies)
                 </span>
               )}
             </div>
@@ -193,26 +207,15 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
           </div>
         </div>
 
-        {/* Filter Tabs */}
-        {anomalies.length > 0 && (
+        {/* Filter Tabs - Size Drops default */}
+        {!isNominal && (
           <div className="flex items-center gap-1.5 rounded-xl border border-border bg-canvas/60 p-1 text-xs self-start sm:self-auto">
             <button
               type="button"
-              onClick={() => setFilterType('all')}
-              className={`rounded-lg px-2.5 py-1 font-medium transition ${
-                filterType === 'all'
-                  ? 'bg-card text-ink shadow-xs border border-border'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
-              All ({anomalies.length})
-            </button>
-            <button
-              type="button"
               onClick={() => setFilterType('size_drop')}
-              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
                 filterType === 'size_drop'
-                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 shadow-xs border border-rose-500/30'
+                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 shadow-xs border border-rose-500/30 font-semibold'
                   : 'text-muted hover:text-ink'
               }`}
             >
@@ -222,29 +225,56 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
             <button
               type="button"
               onClick={() => setFilterType('extreme_delay')}
-              className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 font-medium transition ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
                 filterType === 'extreme_delay'
-                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-500/30'
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-500/30 font-semibold'
                   : 'text-muted hover:text-ink'
               }`}
             >
               <Clock size={12} />
               Extreme Delays ({lateCount})
             </button>
+            <button
+              type="button"
+              onClick={() => setFilterType('all')}
+              className={`rounded-lg px-2.5 py-1 font-medium transition ${
+                filterType === 'all'
+                  ? 'bg-card text-ink shadow-xs border border-border font-semibold'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              All ({anomalies.length})
+            </button>
           </div>
         )}
       </div>
 
-      {/* Zero State if no anomalies in last 24h */}
-      {anomalies.length === 0 && (
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.04] p-5 text-center flex flex-col items-center justify-center space-y-2">
-          <div className="h-9 w-9 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-            <ShieldCheck size={20} />
+      {/* Whole Panel Green Zero State when no anomalies in last 24h */}
+      {isNominal && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center flex flex-col items-center justify-center space-y-2.5">
+          <div className="h-11 w-11 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center ring-4 ring-emerald-500/10">
+            <ShieldCheck size={24} />
           </div>
-          <div className="text-sm font-semibold text-ink">All 24-Hour Deliveries Within Normal Bands</div>
-          <p className="text-xs text-muted max-w-lg">
-            No severe file size drops (&gt;30%) or extreme arrival delays (&gt;20m) detected in the last 24 hours. Historical baselines and SLA tolerances are fully respected.
+          <div className="text-base font-bold text-emerald-950 dark:text-emerald-200">
+            All 24-Hour Deliveries Within Normal Bands
+          </div>
+          <p className="text-xs text-muted max-w-lg leading-relaxed">
+            Zero file size contractions (&gt;30%) or SLA delay breaches (&gt;20m) detected in the last 24 hours. All incoming transmissions adhere strictly to Gaussian variance models (±1.5σ) and expected schedules.
           </p>
+        </div>
+      )}
+
+      {/* Tab Empty State if current tab has 0 items but other tab has items */}
+      {!isNominal && filteredAnomalies.length === 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-card/60 p-6 text-center text-xs text-muted">
+          No {filterType === 'size_drop' ? 'size drop' : 'delay'} anomalies in trailing 24h.{' '}
+          <button
+            type="button"
+            onClick={() => setFilterType('all')}
+            className="text-accent underline font-semibold ml-1 hover:opacity-80"
+          >
+            View all {anomalies.length} detected anomalies →
+          </button>
         </div>
       )}
 
