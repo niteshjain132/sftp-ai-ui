@@ -100,8 +100,8 @@ function buildReports(): Report[] {
     }
   }
 
-  // Guaranteed 24-hour anomaly items (significant size drops and extreme late arrivals)
-  const recent24hAnomalies = [
+  // 24-hour transfer reports (size drops, delayed deliveries, and normal on-time arrivals)
+  const recent24hDeliveries = [
     {
       code: 'POS591',
       cadence: 'ITD',
@@ -138,15 +138,51 @@ function buildReports(): Report[] {
       size: 512_000,
       status: 'late' as ReportStatus,
     },
+    {
+      code: 'ABC123',
+      cadence: 'EOD',
+      ext: 'log',
+      hoursAgo: 4,
+      delay: -4,
+      size: 36_200,
+      status: 'received' as ReportStatus,
+    },
+    {
+      code: 'RISK88',
+      cadence: 'EOD',
+      ext: 'csv',
+      hoursAgo: 7,
+      delay: -2,
+      size: 275_500,
+      status: 'received' as ReportStatus,
+    },
+    {
+      code: 'MMR',
+      cadence: 'HTML',
+      ext: 'html',
+      hoursAgo: 10,
+      delay: 1,
+      size: 211_000,
+      status: 'received' as ReportStatus,
+    },
+    {
+      code: 'INV220',
+      cadence: 'ITD',
+      ext: 'txt',
+      hoursAgo: 12,
+      delay: -3,
+      size: 64_800,
+      status: 'received' as ReportStatus,
+    },
   ]
 
-  for (const item of recent24hAnomalies) {
+  for (const item of recent24hDeliveries) {
     const arrived = new Date(Date.now() - item.hoursAgo * 3600_000)
     const expected = new Date(arrived.getTime() - item.delay * 60_000)
     const day = new Date(arrived)
     const filename = formatFilename(item.code, item.cadence, day, item.ext)
     reports.unshift({
-      id: `rep-24h-anomaly-${id++}`,
+      id: `rep-24h-transferred-${id++}`,
       filename,
       code: item.code,
       cadence: item.cadence,
@@ -264,17 +300,60 @@ export function computeStats(list: Report[]): Stats {
   }
 }
 
-export function computeTrend(list: Report[]): TrendPoint[] {
-  const byDay = new Map<string, TrendPoint>()
-  for (const r of list) {
-    const key = r.businessDate
-    const row = byDay.get(key) ?? { date: key, received: 0, late: 0, pending: 0 }
-    if (r.status === 'received') row.received += 1
-    else if (r.status === 'late') row.late += 1
-    else row.pending += 1
-    byDay.set(key, row)
+export function parsePeriodHours(period = '24h'): number {
+  if (period === '1h') return 1
+  if (period === '3h') return 3
+  if (period === '6h') return 6
+  if (period === '12h') return 12
+  if (period === '24h') return 24
+  return 24
+}
+
+export function computeTrend(list: Report[], period = '24h'): TrendPoint[] {
+  const hours = parsePeriodHours(period)
+  const now = new Date()
+
+  // Generate hourly buckets in CST for the selected window
+  const points: TrendPoint[] = []
+  for (let i = hours - 1; i >= 0; i--) {
+    const bucketDate = new Date(now.getTime() - i * 3600_000)
+    const hourLabel =
+      new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'America/Chicago',
+      }).format(bucketDate).slice(0, 2) + ':00 CST'
+
+    points.push({
+      date: hourLabel,
+      received: 0,
+      late: 0,
+      pending: 0,
+    })
   }
-  return [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-14)
+
+  // Populate counts into appropriate hourly bucket
+  for (const r of list) {
+    const timeMs = r.arrivedAt ? new Date(r.arrivedAt).getTime() : new Date(r.expectedAt).getTime()
+    const itemDate = new Date(timeMs)
+    const itemHourLabel =
+      new Intl.DateTimeFormat('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: 'America/Chicago',
+      }).format(itemDate).slice(0, 2) + ':00 CST'
+
+    const target = points.find((p) => p.date === itemHourLabel)
+    if (target) {
+      if (r.status === 'received') target.received += 1
+      else if (r.status === 'late') target.late += 1
+      else target.pending += 1
+    }
+  }
+
+  return points
 }
 
 export function anomalyFor(report: Report): Anomaly {
@@ -318,13 +397,14 @@ export function matchesQuery(report: Report, q: string): boolean {
   }
 }
 
-export function filterReports(q = '', cadence = 'all', period = '14d'): Report[] {
-  const days = period === '7d' ? 7 : period === '30d' ? 30 : 14
-  const cutoff = Date.now() - days * 86400_000
+export function filterReports(q = '', cadence = 'all', period = '24h'): Report[] {
+  const hours = parsePeriodHours(period)
+  const cutoff = Date.now() - hours * 3600_000
   const filtered = reports.filter((r) => {
     if (!matchesQuery(r, q)) return false
     if (cadence !== 'all' && r.cadence.toLowerCase() !== cadence.toLowerCase()) return false
-    return new Date(r.businessDate).getTime() >= cutoff - 86400_000
+    const timeMs = r.arrivedAt ? new Date(r.arrivedAt).getTime() : new Date(r.expectedAt).getTime()
+    return timeMs >= cutoff
   })
   if (filtered.length > 0) return filtered
   // Graceful fallback to avoid empty state on tight date boundaries
@@ -335,11 +415,11 @@ export function filterReports(q = '', cadence = 'all', period = '14d'): Report[]
   })
 }
 
-export function getMockStatsPayload(q = '', cadence = 'all', period = '14d') {
+export function getMockStatsPayload(q = '', cadence = 'all', period = '24h') {
   const list = filterReports(q, cadence, period)
   return {
     ...computeStats(list),
-    trend: computeTrend(list),
+    trend: computeTrend(list, period),
     cadence: Object.values(
       list.reduce<Record<string, { cadence: string; count: number }>>((acc, r) => {
         acc[r.cadence] = acc[r.cadence] ?? { cadence: r.cadence, count: 0 }

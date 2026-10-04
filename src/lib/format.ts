@@ -20,14 +20,37 @@ export function formatCountdown(ms: number): string {
   return overdue ? `+${clock}` : clock
 }
 
+export function formatTimeCST(iso: string | null | Date): string {
+  if (!iso) return '—'
+  const d = typeof iso === 'string' ? new Date(iso) : iso
+  return (
+    new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Chicago',
+    }).format(d) + ' CST'
+  )
+}
+
+export function formatDateTimeCST(iso: string | null | Date): string {
+  if (!iso) return '—'
+  const d = typeof iso === 'string' ? new Date(iso) : iso
+  return (
+    new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Chicago',
+    }).format(d) + ' CST'
+  )
+}
+
 export function formatWhen(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  return formatDateTimeCST(iso)
 }
 
 export function cssVar(name: string): string {

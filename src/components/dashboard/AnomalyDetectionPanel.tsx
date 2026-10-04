@@ -6,36 +6,50 @@ import {
   ShieldCheck,
   Zap,
   Sparkles,
+  CheckCircle2,
 } from 'lucide-react'
 import { BlinkingBot } from '../layout/BlinkingBot'
-import { formatBytes } from '../../lib/format'
+import { formatBytes, formatTimeCST, formatDateTimeCST } from '../../lib/format'
 import type { Report } from '../../types'
 
-export type DetectedAnomaly = {
+export type Tracked24hReport = {
   report: Report
-  type: 'size_drop' | 'extreme_delay' | 'both'
-  sizeDropPct?: number
-  baselineSize?: number
-  zScore?: number
-  delayMinutes?: number
-  expectedTime: string
-  arrivedTime?: string
+  isSizeDrop: boolean
+  isDelayed: boolean
+  isOnTime: boolean
+  sizeDropPct: number
+  baselineSize: number
+  zScore: number
+  delayMinutes: number
+  expectedCST: string
+  arrivedCST: string
+  dateCST: string
   diagnosticHint: string
-  severity: 'critical' | 'warning'
+  severity: 'critical' | 'warning' | 'nominal'
 }
 
 type Props = {
   reports: Report[]
   onOpenDetail: (report: Report) => void
+  period?: string
 }
 
-export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
-  const [filterType, setFilterType] = useState<'all' | 'size_drop' | 'extreme_delay'>('size_drop')
+export function AnomalyDetectionPanel({ reports, onOpenDetail, period = '24h' }: Props) {
+  // Default to 'size_drop' as requested
+  const [filterType, setFilterType] = useState<'size_drop' | 'delayed' | 'on_time' | 'all'>('size_drop')
   const [now] = useState(() => Date.now())
 
-  // Compute 24-hour anomalies using Gaussian baseline of sibling historical reports
-  const anomalies: DetectedAnomaly[] = useMemo(() => {
-    const trailing24hCutoff = now - 24 * 3600_000
+  const durationMs = useMemo(() => {
+    if (period === '1h') return 1 * 3600_000
+    if (period === '3h') return 3 * 3600_000
+    if (period === '6h') return 6 * 3600_000
+    if (period === '12h') return 12 * 3600_000
+    return 24 * 3600_000
+  }, [period])
+
+  // Compute transfers using Gaussian baseline of sibling historical reports
+  const trackedReports: Tracked24hReport[] = useMemo(() => {
+    const trailingCutoff = now - durationMs
 
     // Group reports by code to compute baseline size mean and std dev
     const statsByCode = new Map<string, { mean: number; std: number; count: number }>()
@@ -47,7 +61,7 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
       statsByCode.set(r.code, current)
     }
 
-    // Finalize means
+    // Finalize means and standard deviations
     for (const [code, stat] of statsByCode.entries()) {
       if (stat.count > 0) {
         stat.mean = stat.mean / stat.count
@@ -60,17 +74,19 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
       }
     }
 
-    const detected: DetectedAnomaly[] = []
+    const list: Tracked24hReport[] = []
 
     for (const report of reports) {
-      // Evaluate if report falls within trailing 24 hours
+      // Must be received or delayed (or arrived within trailing window)
       const arrivedMs = report.arrivedAt ? new Date(report.arrivedAt).getTime() : 0
       const expectedMs = new Date(report.expectedAt).getTime()
-      const isWithin24h =
-        (arrivedMs > 0 && arrivedMs >= trailing24hCutoff) ||
-        (expectedMs >= trailing24hCutoff && expectedMs <= now + 3600_000)
+      const isWithinWindow =
+        (arrivedMs > 0 && arrivedMs >= trailingCutoff) ||
+        (expectedMs >= trailingCutoff && expectedMs <= now + 3600_000)
 
-      if (!isWithin24h) continue
+      if (!isWithinWindow) continue
+      // Only include received or delayed reports as requested
+      if (report.status !== 'received' && report.status !== 'late') continue
 
       const base = statsByCode.get(report.code)
       const meanSize = base ? base.mean : report.sizeBytes
@@ -79,77 +95,92 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
       // 1. File Size Drop detection: >30% drop or z-score <= -1.8
       const sizeDropPct = ((report.sizeBytes - meanSize) / meanSize) * 100
       const zScore = Number(((report.sizeBytes - meanSize) / stdSize).toFixed(2))
-      const isSizeDrop = report.status !== 'pending' && (sizeDropPct <= -30 || zScore <= -1.8)
+      const isSizeDrop = sizeDropPct <= -30 || zScore <= -1.8
 
-      // 2. Extreme Delay detection: delay >= 20 minutes past expected SLA cutoff
+      // 2. Delayed detection: late status or delayMinutes > 0
       const delay = report.delayMinutes ?? 0
-      const isExtremeDelay = (report.status === 'late' && delay >= 20) || (report.status === 'missing' && delay >= 20)
+      const isDelayed = report.status === 'late' || delay > 0
 
-      if (isSizeDrop || isExtremeDelay) {
-        let type: DetectedAnomaly['type'] = 'size_drop'
-        if (isSizeDrop && isExtremeDelay) type = 'both'
-        else if (isExtremeDelay) type = 'extreme_delay'
+      // 3. Normal On-Time delivery
+      const isOnTime = !isSizeDrop && !isDelayed
 
-        const severity: DetectedAnomaly['severity'] =
-          sizeDropPct <= -50 || delay >= 35 ? 'critical' : 'warning'
-
-        let hint = ''
-        if (isSizeDrop && isExtremeDelay) {
-          hint = 'Compound anomaly: severe transfer delay combined with major payload shrinkage. High risk of partial batch write.'
-        } else if (isSizeDrop) {
-          hint = `Payload volume dropped ${Math.abs(sizeDropPct).toFixed(1)}% below historical mean. Likely upstream feed truncation, table drop, or missing partition batches.`
-        } else {
-          hint = `Arrived ${delay} mins past SLA deadline (${new Date(report.expectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Upstream process delay or SFTP throttling detected.`
-        }
-
-        detected.push({
-          report,
-          type,
-          sizeDropPct,
-          baselineSize: meanSize,
-          zScore,
-          delayMinutes: delay,
-          expectedTime: new Date(report.expectedAt).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          arrivedTime: report.arrivedAt
-            ? new Date(report.arrivedAt).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : undefined,
-          diagnosticHint: hint,
-          severity,
-        })
+      let severity: Tracked24hReport['severity'] = 'nominal'
+      if (sizeDropPct <= -50 || delay >= 35) {
+        severity = 'critical'
+      } else if (isSizeDrop || isDelayed) {
+        severity = 'warning'
       }
+
+      const expCST = formatTimeCST(report.expectedAt)
+      const arrCST = formatTimeCST(report.arrivedAt)
+      const dateCST = formatDateTimeCST(report.arrivedAt ?? report.expectedAt)
+
+      let hint = ''
+      if (isSizeDrop && isDelayed) {
+        hint = `Compound anomaly: severe ${delay}m delay past ${expCST} SLA with a ${Math.abs(sizeDropPct).toFixed(1)}% size drop. High risk of partial batch write.`
+      } else if (isSizeDrop) {
+        hint = `Payload volume dropped ${Math.abs(sizeDropPct).toFixed(1)}% below 30-day baseline mean. Indicates possible upstream export truncation, partition drop, or table omission.`
+      } else if (isDelayed) {
+        hint = `Arrived at ${arrCST}, which is ${delay} mins past expected ${expCST} SLA cutoff. Upstream processing queue delay or SFTP transport throttling detected.`
+      } else {
+        hint = `Arrived safely on schedule at ${arrCST} (expected ${expCST}). Volume is healthy within Gaussian variance limits (±1.1σ).`
+      }
+
+      list.push({
+        report,
+        isSizeDrop,
+        isDelayed,
+        isOnTime,
+        sizeDropPct,
+        baselineSize: meanSize,
+        zScore,
+        delayMinutes: delay,
+        expectedCST: expCST,
+        arrivedCST: arrCST,
+        dateCST,
+        diagnosticHint: hint,
+        severity,
+      })
     }
 
-    // Sort: critical first, then most severe size drop or delay
-    return detected.sort((a, b) => {
+    // Sort: critical first, then warnings, then most severe size drop or delay
+    return list.sort((a, b) => {
       if (a.severity === 'critical' && b.severity !== 'critical') return -1
       if (b.severity === 'critical' && a.severity !== 'critical') return 1
+      if (a.severity === 'warning' && b.severity === 'nominal') return -1
+      if (b.severity === 'warning' && a.severity === 'nominal') return 1
       return (a.sizeDropPct ?? 0) - (b.sizeDropPct ?? 0)
     })
-  }, [reports, now])
+  }, [reports, now, durationMs])
 
-  const filteredAnomalies = useMemo(() => {
-    if (filterType === 'all') return anomalies
-    return anomalies.filter((a) => a.type === filterType || a.type === 'both')
-  }, [anomalies, filterType])
+  const sizeDropCount = trackedReports.filter((r) => r.isSizeDrop).length
+  const delayedCount = trackedReports.filter((r) => r.isDelayed).length
+  const onTimeCount = trackedReports.filter((r) => r.isOnTime).length
+  const totalAnomalies = sizeDropCount + delayedCount
 
-  const sizeDropCount = anomalies.filter((a) => a.type === 'size_drop' || a.type === 'both').length
-  const lateCount = anomalies.filter((a) => a.type === 'extreme_delay' || a.type === 'both').length
+  const filteredReports = useMemo(() => {
+    switch (filterType) {
+      case 'size_drop':
+        return trackedReports.filter((r) => r.isSizeDrop)
+      case 'delayed':
+        return trackedReports.filter((r) => r.isDelayed)
+      case 'on_time':
+        return trackedReports.filter((r) => r.isOnTime)
+      case 'all':
+      default:
+        return trackedReports
+    }
+  }, [trackedReports, filterType])
 
-  const handleAskCopilot = (anomaly: DetectedAnomaly) => {
-    const { report } = anomaly
+  const handleAskCopilot = (item: Tracked24hReport) => {
+    const { report } = item
     let prompt = ''
-    if (anomaly.type === 'size_drop') {
-      prompt = `Investigate the severe ${Math.abs(anomaly.sizeDropPct ?? 0).toFixed(1)}% file size drop on report ${report.code} (${report.filename}) in the last 24 hours. The file arrived at ${formatBytes(report.sizeBytes)} vs a ${formatBytes(anomaly.baselineSize ?? 0)} baseline (z-score ${anomaly.zScore}σ). What is the root cause and recommended remediation?`
-    } else if (anomaly.type === 'extreme_delay') {
-      prompt = `Diagnose why ${report.code} (${report.filename}) arrived ${anomaly.delayMinutes} minutes late in the last 24 hours past its expected ${anomaly.expectedTime} SLA. Plot arrival delay trends and suggest SLA adjustments or upstream fixes.`
+    if (item.isSizeDrop) {
+      prompt = `Investigate the severe ${Math.abs(item.sizeDropPct).toFixed(1)}% file size drop on report ${report.code} (${report.filename}) received at ${item.arrivedCST}. The file arrived at ${formatBytes(report.sizeBytes)} vs a ${formatBytes(item.baselineSize)} 30-day baseline (z-score ${item.zScore}σ). What is the root cause and remediation?`
+    } else if (item.isDelayed) {
+      prompt = `Diagnose why ${report.code} (${report.filename}) arrived at ${item.arrivedCST}, which is ${item.delayMinutes} minutes late past its ${item.expectedCST} SLA deadline. Plot arrival trends and suggest upstream batch fixes.`
     } else {
-      prompt = `Critical incident analysis: ${report.code} (${report.filename}) experienced both a ${Math.abs(anomaly.sizeDropPct ?? 0).toFixed(1)}% size drop and arrived ${anomaly.delayMinutes} min late in the last 24h. Correlate upstream batch runs and recommend corrective actions.`
+      prompt = `Review health and transmission telemetry for ${report.code} (${report.filename}) arrived at ${item.arrivedCST}. Verify arrival stability and 7-day volume trend.`
     }
 
     window.dispatchEvent(
@@ -162,7 +193,8 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
     )
   }
 
-  const isNominal = anomalies.length === 0
+  // When there are no anomalies (0 size drops and 0 delays), the whole panel shows green!
+  const isNominal = totalAnomalies === 0
 
   return (
     <div
@@ -187,12 +219,12 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold tracking-tight text-ink flex items-center gap-2">
-                24-Hour SFTP Anomaly Radar
+                {period.toUpperCase()} SFTP Operations & Anomaly Radar
               </h2>
               {!isNominal ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">
                   <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping" />
-                  {anomalies.length} {anomalies.length === 1 ? 'Anomaly' : 'Anomalies'} Detected
+                  {totalAnomalies} {totalAnomalies === 1 ? 'Anomaly' : 'Anomalies'} Detected
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
@@ -200,95 +232,111 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
                   All Systems Nominal (0 Anomalies)
                 </span>
               )}
+              <span className="rounded-md bg-canvas px-2 py-0.5 font-mono text-[10px] font-semibold text-muted border border-border">
+                All Hours in CST (UTC-6)
+              </span>
             </div>
             <p className="text-xs text-muted mt-0.5">
-              Automated surveillance of trailing 24-hour transfers flagging sudden payload size drops (&gt;30%) and extreme arrival delays (&gt;20m).
+              Real-time monitoring of all transfers received or delayed in the trailing {period} window. Flags payload size contractions (&gt;30%) and delivery delay breaches.
             </p>
           </div>
         </div>
 
         {/* Filter Tabs - Size Drops default */}
-        {!isNominal && (
-          <div className="flex items-center gap-1.5 rounded-xl border border-border bg-canvas/60 p-1 text-xs self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setFilterType('size_drop')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
-                filterType === 'size_drop'
-                  ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 shadow-xs border border-rose-500/30 font-semibold'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
-              <TrendingDown size={12} />
-              Size Drops ({sizeDropCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType('extreme_delay')}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
-                filterType === 'extreme_delay'
-                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-500/30 font-semibold'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
-              <Clock size={12} />
-              Extreme Delays ({lateCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType('all')}
-              className={`rounded-lg px-2.5 py-1 font-medium transition ${
-                filterType === 'all'
-                  ? 'bg-card text-ink shadow-xs border border-border font-semibold'
-                  : 'text-muted hover:text-ink'
-              }`}
-            >
-              All ({anomalies.length})
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-canvas/60 p-1 text-xs self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setFilterType('size_drop')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
+              filterType === 'size_drop'
+                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 shadow-xs border border-rose-500/30 font-semibold'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <TrendingDown size={12} />
+            Size Drops ({sizeDropCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterType('delayed')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
+              filterType === 'delayed'
+                ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 shadow-xs border border-amber-500/30 font-semibold'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <Clock size={12} />
+            Delayed ({delayedCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterType('on_time')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-medium transition ${
+              filterType === 'on_time'
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shadow-xs border border-emerald-500/30 font-semibold'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <CheckCircle2 size={12} />
+            On-Time ({onTimeCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterType('all')}
+            className={`rounded-lg px-2.5 py-1 font-medium transition ${
+              filterType === 'all'
+                ? 'bg-card text-ink shadow-xs border border-border font-semibold'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            All {period} ({trackedReports.length})
+          </button>
+        </div>
       </div>
 
-      {/* Whole Panel Green Zero State when no anomalies in last 24h */}
+      {/* Whole Panel Green State Banner when no anomalies in window */}
       {isNominal && (
-        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-center flex flex-col items-center justify-center space-y-2.5">
-          <div className="h-11 w-11 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center ring-4 ring-emerald-500/10">
-            <ShieldCheck size={24} />
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-center flex flex-col items-center justify-center space-y-2">
+          <div className="h-10 w-10 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center ring-4 ring-emerald-500/10">
+            <ShieldCheck size={22} />
           </div>
-          <div className="text-base font-bold text-emerald-950 dark:text-emerald-200">
-            All 24-Hour Deliveries Within Normal Bands
+          <div className="text-sm font-bold text-emerald-950 dark:text-emerald-200">
+            All Trailing {period.toUpperCase()} Deliveries Within Normal Bands
           </div>
           <p className="text-xs text-muted max-w-lg leading-relaxed">
-            Zero file size contractions (&gt;30%) or SLA delay breaches (&gt;20m) detected in the last 24 hours. All incoming transmissions adhere strictly to Gaussian variance models (±1.5σ) and expected schedules.
+            Zero file size contractions (&gt;30%) or SLA delay breaches detected in the trailing {period} window. All incoming transmissions adhere strictly to Gaussian variance models (±1.5σ) and expected schedules in CST hours.
           </p>
         </div>
       )}
 
-      {/* Tab Empty State if current tab has 0 items but other tab has items */}
-      {!isNominal && filteredAnomalies.length === 0 && (
+      {/* Empty Tab Filter Fallback */}
+      {filteredReports.length === 0 && (
         <div className="rounded-xl border border-dashed border-border bg-card/60 p-6 text-center text-xs text-muted">
-          No {filterType === 'size_drop' ? 'size drop' : 'delay'} anomalies in trailing 24h.{' '}
+          No reports found under the {filterType === 'size_drop' ? 'Size Drops' : filterType === 'delayed' ? 'Delayed' : 'On-Time'} filter in trailing {period}.{' '}
           <button
             type="button"
             onClick={() => setFilterType('all')}
             className="text-accent underline font-semibold ml-1 hover:opacity-80"
           >
-            View all {anomalies.length} detected anomalies →
+            View all {trackedReports.length} reports in this window →
           </button>
         </div>
       )}
 
-      {/* Anomaly Cards Grid */}
-      {filteredAnomalies.length > 0 && (
+      {/* Reports Grid */}
+      {filteredReports.length > 0 && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {filteredAnomalies.map((item) => {
-            const isSize = item.type === 'size_drop' || item.type === 'both'
-            const isDelay = item.type === 'extreme_delay' || item.type === 'both'
-
+          {filteredReports.map((item) => {
             return (
               <div
                 key={item.report.id}
-                className="group relative flex flex-col justify-between rounded-xl border border-border bg-card p-4 shadow-2xs hover:border-rose-500/40 hover:shadow-sm transition-all"
+                className={`group relative flex flex-col justify-between rounded-xl border bg-card p-4 shadow-2xs transition-all ${
+                  item.isSizeDrop
+                    ? 'border-rose-500/30 hover:border-rose-500/60'
+                    : item.isDelayed
+                      ? 'border-amber-500/30 hover:border-amber-500/60'
+                      : 'border-border hover:border-emerald-500/40'
+                }`}
               >
                 <div>
                   {/* Card Header */}
@@ -304,15 +352,20 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
                         <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 border border-rose-500/20">
                           Critical Alert
                         </span>
-                      ) : (
+                      ) : item.severity === 'warning' ? (
                         <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 border border-amber-500/20">
                           Warning
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <CheckCircle2 size={10} />
+                          On-Time
                         </span>
                       )}
                     </div>
 
                     <div className="text-[11px] text-muted font-mono">
-                      {item.report.businessDate}
+                      {item.dateCST}
                     </div>
                   </div>
 
@@ -323,31 +376,39 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail }: Props) {
 
                   {/* Metrics Badges */}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {isSize && (
+                    {item.isSizeDrop && (
                       <div className="flex items-center gap-1.5 rounded-lg bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">
                         <TrendingDown size={14} />
                         <span>
-                          Size Drop: {Math.abs(item.sizeDropPct ?? 0).toFixed(1)}%
+                          Size Drop: {Math.abs(item.sizeDropPct).toFixed(1)}%
                         </span>
                         <span className="font-normal opacity-80 text-[11px]">
-                          ({formatBytes(item.report.sizeBytes)} vs {formatBytes(item.baselineSize ?? 0)})
+                          ({formatBytes(item.report.sizeBytes)} vs {formatBytes(item.baselineSize)})
                         </span>
-                        {item.zScore !== undefined && (
-                          <span className="rounded bg-rose-500/20 px-1 py-0.2 font-mono text-[10px]">
-                            {item.zScore}σ
-                          </span>
-                        )}
+                        <span className="rounded bg-rose-500/20 px-1 py-0.2 font-mono text-[10px]">
+                          {item.zScore}σ
+                        </span>
                       </div>
                     )}
 
-                    {isDelay && (
+                    {item.isDelayed && (
                       <div className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400 border border-amber-500/20">
                         <Clock size={14} />
                         <span>
                           Delay: +{item.delayMinutes} min
                         </span>
                         <span className="font-normal opacity-80 text-[11px]">
-                          (Arrived {item.arrivedTime ?? 'late'} vs {item.expectedTime} SLA)
+                          (Arrived {item.arrivedCST} vs {item.expectedCST} SLA)
+                        </span>
+                      </div>
+                    )}
+
+                    {item.isOnTime && (
+                      <div className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <CheckCircle2 size={13} />
+                        <span>Arrived: {item.arrivedCST}</span>
+                        <span className="font-normal opacity-80 text-[11px]">
+                          (Due {item.expectedCST} • {formatBytes(item.report.sizeBytes)})
                         </span>
                       </div>
                     )}

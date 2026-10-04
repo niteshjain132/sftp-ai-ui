@@ -16,7 +16,7 @@ export const handlers = [
     const url = new URL(request.url)
     const q = url.searchParams.get('q') ?? ''
     const cadence = url.searchParams.get('cadence') ?? 'all'
-    const period = url.searchParams.get('period') ?? '14d'
+    const period = url.searchParams.get('period') ?? '24h'
     return HttpResponse.json(getMockStatsPayload(q, cadence, period))
   }),
 
@@ -24,7 +24,7 @@ export const handlers = [
     const url = new URL(request.url)
     const q = url.searchParams.get('q') ?? ''
     const cadence = url.searchParams.get('cadence') ?? 'all'
-    const period = url.searchParams.get('period') ?? '14d'
+    const period = url.searchParams.get('period') ?? '24h'
     return HttpResponse.json(filterReports(q, cadence, period))
   }),
 

@@ -36,7 +36,7 @@ import { computeStats } from '../mock/data'
 import { SearchBar } from '../components/layout/SearchBar'
 import { ThemeToggle } from '../components/layout/ThemeToggle'
 import { AnomalyDetectionPanel } from '../components/dashboard/AnomalyDetectionPanel'
-import { formatBytes, formatCountdown, formatDelta, formatWhen } from '../lib/format'
+import { formatBytes, formatCountdown, formatDelta, formatWhen, formatTimeCST } from '../lib/format'
 import type { Anomaly, Report, Stats, TrendPoint } from '../types'
 
 type StatModalType = 'received' | 'late' | 'pending' | 'missing' | 'sla' | 'anomalies' | null
@@ -44,7 +44,7 @@ type StatModalType = 'received' | 'late' | 'pending' | 'missing' | 'sla' | 'anom
 export function Dashboard() {
   const [q, setQ] = useState('')
   const [cadence, setCadence] = useState('all')
-  const [period, setPeriod] = useState('14d')
+  const [period, setPeriod] = useState('24h')
 
   // Floating detail modal for KPI cards
   const [activeStatModal, setActiveStatModal] = useState<StatModalType>(null)
@@ -519,9 +519,9 @@ export function Dashboard() {
             ))}
           </div>
 
-          {/* Period selector */}
+          {/* Period selector (Intraday CST) */}
           <div className="flex items-center rounded-full border border-border bg-canvas p-1 text-xs">
-            {['7d', '14d', '30d'].map((p) => (
+            {['1h', '3h', '6h', '12h', '24h'].map((p) => (
               <button
                 key={p}
                 type="button"
@@ -677,7 +677,7 @@ export function Dashboard() {
             onClick={() => {
               setQ('')
               setCadence('all')
-              setPeriod('14d')
+              setPeriod('24h')
               setTableStatusFilter('all')
               setTableReportFilter('all')
               setTableDateFilter('')
@@ -699,9 +699,9 @@ export function Dashboard() {
             <div>
               <h2 className="text-sm font-semibold text-ink flex items-center gap-2">
                 <TrendingUp size={16} className="text-accent" />
-                Arrival & SLA Trend ({period})
+                Hourly Arrival & SLA Trend ({period} CST)
               </h2>
-              <p className="text-xs text-muted">Daily distribution of on-time, late, and pending deliveries</p>
+              <p className="text-xs text-muted">Hourly distribution of on-time, late, and pending deliveries in CST</p>
             </div>
             <div className="flex items-center gap-3 text-[11px]">
               <span className="flex items-center gap-1.5">
@@ -801,7 +801,7 @@ export function Dashboard() {
                         {formatCountdown(diffMs)}
                       </span>
                       <div className="text-[10px] text-muted">
-                        Due {new Date(u.expectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        Due {formatTimeCST(u.expectedAt)}
                       </div>
                     </div>
                   </div>
@@ -812,8 +812,8 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* 24-Hour Anomaly Detection Panel */}
-      <AnomalyDetectionPanel reports={reports} onOpenDetail={handleOpenDetail} />
+      {/* SFTP Operations & Anomaly Radar */}
+      <AnomalyDetectionPanel reports={reports} onOpenDetail={handleOpenDetail} period={period} />
 
       {/* Main Reports Table */}
       <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden flex flex-col">
