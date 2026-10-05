@@ -77,12 +77,9 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail, period = '24h' }:
     const list: Tracked24hReport[] = []
 
     for (const report of reports) {
-      // Must be received or delayed (or arrived within trailing window)
+      // Must have arrived within the trailing period window
       const arrivedMs = report.arrivedAt ? new Date(report.arrivedAt).getTime() : 0
-      const expectedMs = new Date(report.expectedAt).getTime()
-      const isWithinWindow =
-        (arrivedMs > 0 && arrivedMs >= trailingCutoff) ||
-        (expectedMs >= trailingCutoff && expectedMs <= now + 3600_000)
+      const isWithinWindow = arrivedMs > 0 && arrivedMs >= trailingCutoff && arrivedMs <= now
 
       if (!isWithinWindow) continue
       // Only include received or delayed reports as requested
@@ -301,16 +298,20 @@ export function AnomalyDetectionPanel({ reports, onOpenDetail, period = '24h' }:
             <ShieldCheck size={22} />
           </div>
           <div className="text-sm font-bold text-emerald-950 dark:text-emerald-200">
-            All Trailing {period.toUpperCase()} Deliveries Within Normal Bands
+            {trackedReports.length === 0
+              ? `No SFTP Deliveries or SLA Breaches in Trailing ${period.toUpperCase()}`
+              : `All Trailing ${period.toUpperCase()} Deliveries Within Normal Bands (${trackedReports.length} On-Time)`}
           </div>
           <p className="text-xs text-muted max-w-lg leading-relaxed">
-            Zero file size contractions (&gt;30%) or SLA delay breaches detected in the trailing {period} window. All incoming transmissions adhere strictly to Gaussian variance models (±1.5σ) and expected schedules in CST hours.
+            {trackedReports.length === 0
+              ? `No file arrivals or delivery delay breaches recorded in the trailing ${period} window. SFTP channels and transfer radar nominal.`
+              : `Zero file size contractions (>30%) or SLA delay breaches detected in the trailing ${period} window. All incoming transmissions adhere strictly to Gaussian variance models (±1.5σ) and expected schedules in CST hours.`}
           </p>
         </div>
       )}
 
-      {/* Empty Tab Filter Fallback */}
-      {filteredReports.length === 0 && (
+      {/* Empty Tab Filter Fallback (only when there are tracked reports in window but none matching this tab) */}
+      {trackedReports.length > 0 && filteredReports.length === 0 && (
         <div className="rounded-xl border border-dashed border-border bg-card/60 p-6 text-center text-xs text-muted">
           No reports found under the {filterType === 'size_drop' ? 'Size Drops' : filterType === 'delayed' ? 'Delayed' : 'On-Time'} filter in trailing {period}.{' '}
           <button

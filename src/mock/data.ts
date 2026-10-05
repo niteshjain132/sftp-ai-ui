@@ -61,27 +61,24 @@ function buildReports(): Report[] {
       let arrived: Date | null = null
       let force: ReportStatus | undefined
 
-      if (dayOffset > 0) {
+      if (dayOffset > 0 || (dayOffset === 0 && expected.getTime() > now.getTime())) {
         force = 'pending'
-      } else if (dayOffset === 1 || (dayOffset === 0 && expected.getTime() > Date.now())) {
-        if (rand() < 0.55) force = 'pending'
-        else {
-          const jitter = Math.floor((rand() - 0.2) * 50)
-          arrived = new Date(expected.getTime() + jitter * 60_000)
-        }
       } else if (rand() < 0.08) {
         force = 'missing'
       } else {
         const jitter = Math.floor((rand() - 0.35) * 80)
         arrived = new Date(expected.getTime() + jitter * 60_000)
+        if (arrived.getTime() > now.getTime()) {
+          arrived = new Date(now.getTime() - Math.floor(rand() * 15 * 60_000))
+        }
       }
 
       const size = Math.max(8_000, Math.round(tpl.baseSize * (0.75 + rand() * 0.55)))
       const status = statusFor(expected, arrived, force)
       const delayMinutes = arrived
         ? Math.round((arrived.getTime() - expected.getTime()) / 60_000)
-        : status === 'missing' || status === 'pending'
-          ? Math.round((Date.now() - expected.getTime()) / 60_000)
+        : status === 'missing'
+          ? Math.max(0, Math.round((now.getTime() - expected.getTime()) / 60_000))
           : null
 
       reports.push({
@@ -106,7 +103,7 @@ function buildReports(): Report[] {
       code: 'POS591',
       cadence: 'ITD',
       ext: 'txt',
-      hoursAgo: 3,
+      hoursAgo: 4,
       delay: 2,
       size: 22_400, // 74.5% drop from 88 KB baseline
       status: 'received' as ReportStatus,
@@ -281,7 +278,7 @@ export function computeStats(list: Report[]): Stats {
   const late = list.filter((r) => r.status === 'late').length
   const pending = list.filter((r) => r.status === 'pending').length
   const missing = list.filter((r) => r.status === 'missing').length
-  const sized = list.filter((r) => Math.abs(r.delayMinutes ?? 0) > 25 || (r.sizeBytes > 400_000 && r.status !== 'pending'))
+  const sized = list.filter((r) => r.status !== 'pending' && r.status !== 'missing' && r.sizeBytes > 400_000)
   const arrived = received + late
   const slaHealth = arrived === 0 ? 100 : Math.round((received / arrived) * 100)
   return {
