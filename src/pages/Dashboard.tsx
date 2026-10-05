@@ -715,7 +715,10 @@ export function Dashboard() {
 
           <div className="h-56 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={stats?.trend ?? []}>
+              <AreaChart
+                key={`trend-${period}-${stats?.trend?.length ?? 0}`}
+                data={stats?.trend ?? []}
+              >
                 <defs>
                   <linearGradient id="colorRecv" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
@@ -744,6 +747,9 @@ export function Dashboard() {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorRecv)"
+                  isAnimationActive={true}
+                  animationDuration={1000}
+                  animationEasing="ease-out"
                 />
                 <Area
                   type="monotone"
@@ -752,6 +758,9 @@ export function Dashboard() {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorLate)"
+                  isAnimationActive={true}
+                  animationDuration={1000}
+                  animationEasing="ease-out"
                 />
               </AreaChart>
             </ResponsiveContainer>
@@ -1222,7 +1231,10 @@ export function Dashboard() {
                     </div>
                     <div className="h-36 w-full">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={anomalyData.history}>
+                        <BarChart
+                          key={`history-${selectedReport?.id}-${anomalyData.history.length}`}
+                          data={anomalyData.history}
+                        >
                           <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                           <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                           <YAxis tick={{ fontSize: 10 }} />
@@ -1234,7 +1246,14 @@ export function Dashboard() {
                               fontSize: 11,
                             }}
                           />
-                          <Bar dataKey="size" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                          <Bar
+                            dataKey="size"
+                            fill="var(--accent)"
+                            radius={[4, 4, 0, 0]}
+                            isAnimationActive={true}
+                            animationDuration={800}
+                            animationEasing="ease-out"
+                          />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -1313,7 +1332,11 @@ export function Dashboard() {
                 <div className="h-44 w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     {statModalData.chart.type === 'bar-cadence' ? (
-                      <BarChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart
+                        key={`cadence-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
@@ -1325,12 +1348,40 @@ export function Dashboard() {
                             fontSize: 11,
                           }}
                         />
-                        <Bar dataKey="EOD" fill="#6366f1" radius={[3, 3, 0, 0]} stackId="a" />
-                        <Bar dataKey="ITD" fill="#0ea5e9" radius={[3, 3, 0, 0]} stackId="a" />
-                        <Bar dataKey="HTML" fill="#10b981" radius={[3, 3, 0, 0]} stackId="a" />
+                        <Bar
+                          dataKey="EOD"
+                          fill="#6366f1"
+                          radius={[3, 3, 0, 0]}
+                          stackId="a"
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
+                        <Bar
+                          dataKey="ITD"
+                          fill="#0ea5e9"
+                          radius={[3, 3, 0, 0]}
+                          stackId="a"
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
+                        <Bar
+                          dataKey="HTML"
+                          fill="#10b981"
+                          radius={[3, 3, 0, 0]}
+                          stackId="a"
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
                       </BarChart>
                     ) : statModalData.chart.type === 'bar-delay' ? (
-                      <BarChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart
+                        key={`delay-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit="m" />
@@ -1349,14 +1400,24 @@ export function Dashboard() {
                           strokeDasharray="3 3"
                           label={{ value: '15m SLA', fontSize: 10, fill: '#f59e0b' }}
                         />
-                        <Bar dataKey="delay" radius={[4, 4, 0, 0]}>
+                        <Bar
+                          dataKey="delay"
+                          radius={[4, 4, 0, 0]}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        >
                           {statModalData.chart.data.map((entry: { delay: number }, idx: number) => (
                             <Cell key={idx} fill={entry.delay > 30 ? '#f43f5e' : '#f59e0b'} />
                           ))}
                         </Bar>
                       </BarChart>
                     ) : statModalData.chart.type === 'bar-pending' ? (
-                      <BarChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart
+                        key={`pending-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit="h" />
@@ -1369,10 +1430,21 @@ export function Dashboard() {
                           }}
                           formatter={(val: unknown) => [`${val} hrs`, 'Until Cutoff']}
                         />
-                        <Bar dataKey="hoursLeft" fill="#0284c7" radius={[4, 4, 0, 0]} />
+                        <Bar
+                          dataKey="hoursLeft"
+                          fill="#0284c7"
+                          radius={[4, 4, 0, 0]}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
                       </BarChart>
                     ) : statModalData.chart.type === 'bar-missing' ? (
-                      <BarChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart
+                        key={`missing-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit="h" />
@@ -1385,10 +1457,21 @@ export function Dashboard() {
                           }}
                           formatter={(val: unknown) => [`+${val} hrs`, 'Past Cutoff']}
                         />
-                        <Bar dataKey="hoursPast" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                        <Bar
+                          dataKey="hoursPast"
+                          fill="#ef4444"
+                          radius={[4, 4, 0, 0]}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
                       </BarChart>
                     ) : statModalData.chart.type === 'area-sla' ? (
-                      <AreaChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <AreaChart
+                        key={`sla-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <defs>
                           <linearGradient id="colorSlaModal" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
@@ -1419,10 +1502,17 @@ export function Dashboard() {
                           stroke="#10b981"
                           strokeWidth={2}
                           fill="url(#colorSlaModal)"
+                          isAnimationActive={true}
+                          animationDuration={900}
+                          animationEasing="ease-out"
                         />
                       </AreaChart>
                     ) : (
-                      <BarChart data={statModalData.chart.data} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                      <BarChart
+                        key={`anomalies-${statModalData.chart.data.length}`}
+                        data={statModalData.chart.data}
+                        margin={{ top: 8, right: 10, left: -20, bottom: 0 }}
+                      >
                         <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} unit=" KB" />
@@ -1434,8 +1524,24 @@ export function Dashboard() {
                             fontSize: 11,
                           }}
                         />
-                        <Bar dataKey="actualKb" name="Actual (KB)" fill="#a855f7" radius={[3, 3, 0, 0]} />
-                        <Bar dataKey="baselineKb" name="Baseline (KB)" fill="#64748b" radius={[3, 3, 0, 0]} />
+                        <Bar
+                          dataKey="actualKb"
+                          name="Actual (KB)"
+                          fill="#a855f7"
+                          radius={[3, 3, 0, 0]}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
+                        <Bar
+                          dataKey="baselineKb"
+                          name="Baseline (KB)"
+                          fill="#64748b"
+                          radius={[3, 3, 0, 0]}
+                          isAnimationActive={true}
+                          animationDuration={800}
+                          animationEasing="ease-out"
+                        />
                       </BarChart>
                     )}
                   </ResponsiveContainer>

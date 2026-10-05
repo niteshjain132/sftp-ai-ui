@@ -285,7 +285,10 @@ export function AiDock({ open, onToggle }: Props) {
                         <div className="h-36 w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             {chart.type === 'bar' ? (
-                              <BarChart data={chart.series[0]?.points ?? []}>
+                              <BarChart
+                                key={`dock-bar-${chart.series[0]?.points?.length ?? 0}`}
+                                data={chart.series[0]?.points ?? []}
+                              >
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                                 <XAxis dataKey="x" tick={{ fontSize: 10 }} />
                                 <YAxis tick={{ fontSize: 10 }} />
@@ -297,10 +300,20 @@ export function AiDock({ open, onToggle }: Props) {
                                     fontSize: 11,
                                   }}
                                 />
-                                <Bar dataKey="y" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                                <Bar
+                                  dataKey="y"
+                                  fill="var(--accent)"
+                                  radius={[4, 4, 0, 0]}
+                                  isAnimationActive={true}
+                                  animationDuration={800}
+                                  animationEasing="ease-out"
+                                />
                               </BarChart>
                             ) : (
-                              <LineChart data={chart.series[0]?.points ?? []}>
+                              <LineChart
+                                key={`dock-line-${chart.series[0]?.points?.length ?? 0}`}
+                                data={chart.series[0]?.points ?? []}
+                              >
                                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                                 <XAxis dataKey="x" tick={{ fontSize: 10 }} />
                                 <YAxis tick={{ fontSize: 10 }} />
@@ -318,6 +331,9 @@ export function AiDock({ open, onToggle }: Props) {
                                   stroke="var(--accent)"
                                   strokeWidth={2}
                                   dot={{ r: 3 }}
+                                  isAnimationActive={true}
+                                  animationDuration={800}
+                                  animationEasing="ease-out"
                                 />
                               </LineChart>
                             )}
